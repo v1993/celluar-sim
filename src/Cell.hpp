@@ -34,6 +34,7 @@ class Cell {
 			execPtr(std::move(o.execPtr)),
 			age(std::move(o.age)),
 			energy(std::move(o.energy)),
+			power(std::move(o.power)),
 
 			opline(std::move(o.opline)),
 			gRegs(std::move(o.gRegs)),
@@ -62,8 +63,9 @@ class Cell {
 			if ((uint8_t)(eeng + energy_income) < energy_income) energy_income = 255;
 			else energy_income += eeng;
 		};
-		uint8_t getEnergy() { return energy; };
-		auto const& getProgram() {
+		uint8_t getEnergy() const { return energy; };
+		uint8_t getPower() const { return power; };
+		auto const& getProgram() const {
 			return opline;
 		};
 		// Needed if map was touched
@@ -75,7 +77,8 @@ class Cell {
 	private:
 		size_t execPtr = 0;
 		size_t age = 0;
-		size_t energy = 100;
+		uint8_t energy = 100;
+		uint8_t power = 0;
 
 		std::array<uint8_t, 127> opline = {0};
 		std::array<uint8_t, 13> gRegs = {0}; // Registers that don't require special reads.

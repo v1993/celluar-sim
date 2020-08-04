@@ -56,7 +56,7 @@ CellActionRequest* Cell::advanceBegin(Point pos) {
 	}
 	case 3:   // MOVE
 	case 4: { // RMOVE
-		energy_usage += 2;
+		energy_usage += 5 - std::min(power / 7, 5);
 		auto dir = DirectionHelper::create((cmd == 3) ? readAndAdvance() : regreadline());
 		if (pos.canApply(dir)) {
 			SDL_assert_paranoid(pos.apply(dir));
@@ -178,7 +178,21 @@ CellActionRequest* Cell::advanceBegin(Point pos) {
 		setoreg(0);
 		return nullptr;
 	}
-	// TODO: once overall program is proven to work, add FIND and FINDE opcodes
+	// TODO: add FIND and FINDE opcodes
+	case 25:   // POW
+	case 26: { // RPOW
+		auto powAmount = (cmd == 25) ? readAndAdvance() : regreadline();
+		if (powAmount < energy) {
+			energy -= powAmount;
+			if ((uint8_t)(power + powAmount) < power) power = 255;
+			else power += powAmount;
+			// Side effect: use POW(0) to obtain current power
+			setoreg(power);
+		} else {
+			setoreg(0);
+		}
+		return nullptr;
+	}
 	default:
 		advancePtr(cmd);
 		return nullptr;
@@ -186,7 +200,10 @@ CellActionRequest* Cell::advanceBegin(Point pos) {
 }
 
 EndMoveAction Cell::advanceEnd(Point pos, randomGenerator& rng) {
-	addEnergy(field.lightMap[pos.x * global.fieldH + pos.y] / 32);
+	auto lightEng = field.lightMap[pos.x * global.fieldH + pos.y] / 32;
+	auto powerMod = power / 10;
+	if (lightEng > powerMod) addEnergy(lightEng - powerMod);
+
 	if (energy_income < energy_usage) {
 		energy_usage -= energy_income;
 		// Dead from energy underflow
@@ -225,6 +242,7 @@ std::shared_ptr<Cell> Cell::fork() const {
  	auto n = std::make_shared<Cell>();
 
 	n->energy = energy;
+	n->power = power / 10;
 	n->opline = opline;
 
 	return n;

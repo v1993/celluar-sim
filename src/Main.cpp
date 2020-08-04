@@ -31,8 +31,7 @@ Uint32 my_callbackfunc([[maybe_unused]] Uint32 interval, [[maybe_unused]] void *
 
 	userevent.type = SDL_USEREVENT;
 	userevent.code = 0;
-	//userevent.data1 = (void*)&"FPS";
-	//userevent.data2 = param;
+	// One might want to set `userevent.data1` or `userevent.data2`
 
 	event.type = SDL_USEREVENT;
 	event.user = userevent;
@@ -165,6 +164,17 @@ int main(int argc, char* argv[]) {
 									for (size_t i = 0; i < 10; ++i) {
 										field.cells.insert_or_assign(Point(hDist(rng), wDist(rng)), std::make_shared<Cell>());
 									}
+									break;
+								}
+								case SDL_SCANCODE_KP_PLUS: {
+									mutationRate += 5;
+									std::cout << "Mutation rate: " << mutationRate << std::endl;
+									break;
+								}
+								case SDL_SCANCODE_KP_MINUS: {
+									if(mutationRate >= 5) mutationRate -= 5;
+									std::cout << "Mutation rate: " << mutationRate << std::endl;
+									break;
 								}
 								default:
 									break;
@@ -289,15 +299,21 @@ int main(int argc, char* argv[]) {
 							if (field.cells.count(req.first)) {
 								// It is. Good
 								auto& prey = field.cells.at(req.first);
-								// TODO: impement some sort of power to makes struggles more strategically interesting
 								bool canEat = false;
+								
+								auto getPotential = [](decltype(eater)& obj) {
+									return obj->getEnergy() + obj->getPower();
+								};
+								
+								auto eaterPotential = getPotential(eater);
+								auto preyPotential = getPotential(prey);
 
-								if (eater->getEnergy() < prey->getEnergy()) {
-									uint8_t diff = prey->getEnergy() - eater->getEnergy();
+								if (eaterPotential < preyPotential) {
+									uint8_t diff = preyPotential - eaterPotential;
 
 									std::uniform_int_distribution<uint8_t> dist(0, diff);
 									// This affects how useful eating is in general
-									canEat = dist(rng) < 50;
+									canEat = dist(rng) < 25;
 								} else {
 									canEat = true;
 								}
@@ -486,15 +502,18 @@ int main(int argc, char* argv[]) {
 #endif
 					for (size_t y = 0; y < global.fieldH; ++y) {
 						for (size_t x = 0; x < global.fieldW; ++x) {
-							auto pixidx = pitch * y + x * 3;
-							// RED - currently unused
-							pixels[pixidx]		= 0;
-
-							// GREEN - show energy of cells
-							if (field.cells.count({y, x}))
-								pixels[pixidx + 1]	= field.cells.at({y, x})->getEnergy();
-							else
+							size_t pixidx = pitch * y + x * 3;
+							
+							if (field.cells.count({y, x})) {
+								// RED - power
+								// GREEN - energy
+								auto& cell = field.cells.at({y, x});
+								pixels[pixidx]		= cell->getPower();
+								pixels[pixidx + 1]	= cell->getEnergy();
+							} else {
+								pixels[pixidx]		= 0;
 								pixels[pixidx + 1]	= 0;
+							}
 
 							// BLUE - lighting level
 							pixels[pixidx + 2]	= field.lightMap[x * global.fieldH + y];
