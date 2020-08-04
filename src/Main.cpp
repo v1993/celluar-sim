@@ -356,7 +356,11 @@ int main(int argc, char* argv[]) {
 					else maxLight = daytime;
 				}
 #ifdef WITH_OPENMP
+#if defined(__GNUC__) && (__GNUC__ < 10)
+				#pragma omp for nowait
+#else
 				#pragma omp for nowait order(concurrent)
+#endif
 #endif
 				for (size_t x = 0; x < global.fieldW; ++x) {
 					size_t lightLevel = maxLight;
