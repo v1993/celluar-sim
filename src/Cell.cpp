@@ -83,7 +83,7 @@ CellActionRequest* Cell::advanceBegin(Point pos) {
 	case 8: { // RANALYZE
 		if (pos.apply(DirectionHelper::create((cmd == 7) ? readAndAdvance() : regreadline()))) {
 			if (field.cells.count(pos)) {
-				heavyWait = 1;
+				heavyWait = 2;
 				const auto& otherProg = field.cells.at(pos)->getProgram();
 				size_t diff = 0;
 				for (size_t i = 0; i < opline.size(); ++i) {
@@ -222,14 +222,10 @@ EndMoveAction Cell::advanceEnd(Point pos, randomGenerator& rng) {
 }
 
 std::shared_ptr<Cell> Cell::fork() const {
- 	auto n = std::make_shared<Cell>(*this);
-	n->execPtr = 0;
-	n->age = 0;
+ 	auto n = std::make_shared<Cell>();
 
-	n->gRegs = {0};
-
-	n->heavyWait = 0;
-	n->hibernate = 0;
+	n->energy = energy;
+	n->opline = opline;
 
 	return n;
 }

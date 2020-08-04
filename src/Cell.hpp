@@ -29,7 +29,7 @@ class Cell {
 	public:
 		// Object's lifecycle
 		Cell() = default;
-		explicit Cell(const Cell&) = default;
+		explicit Cell(const Cell&) = delete;
 		Cell(Cell&& o):
 			execPtr(std::move(o.execPtr)),
 			age(std::move(o.age)),

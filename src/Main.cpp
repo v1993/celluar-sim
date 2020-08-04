@@ -124,235 +124,227 @@ int main(int argc, char* argv[]) {
 		// TODO: make those changeble in runtime
 		size_t mutationRate = 10;
 
+		// Those vectors get reused a lot, so don't create them every loop
+		std::vector<std::pair<Point, std::shared_ptr<Cell>>> moves;
+		std::vector<std::pair<Point, CellActionRequest*>> energyts;
+		std::vector<std::pair<Point, CellActionRequest*>> eats;
+
+		std::vector<Point> divisions;
+		std::vector<Point> todie;
+
 		// We're all set, let's go!
 		bool working = true;
 		auto fpsTime = SDL_GetTicks();
 		SDL_AddTimer(1000, my_callbackfunc, nullptr);
-		while (working) {
-			// Input events handling
-			{
-				SDL_Event e;
-				while (SDL_PollEvent(&e)) {
-					switch (e.type) {
-					case SDL_QUIT:
-						working = false;
-						break;
-					case SDL_KEYDOWN:
-						if (!e.key.repeat)
-							switch (e.key.keysym.scancode) {
-							case SDL_SCANCODE_A: {
-								std::cout << "Here, have some cells!" << std::endl;
 #ifdef WITH_OPENMP
-								auto& rng = rngs[0];
+		#pragma omp parallel
+		{
+			// Style guide: tasks and taskloops must use default(none) to strictly control variable access
+			// Note: must not be used in tasks. Each must get an individual copy instead.
+			auto& rng = rngs[omp_get_thread_num()];
+			// FIXME: handle exceptions that might happen in loop
 #endif
-								std::uniform_int_distribution<size_t> wDist(0, global.fieldW - 1);
-								std::uniform_int_distribution<size_t> hDist(0, global.fieldH - 1);
-								for (size_t i = 0; i < 10; ++i) {
-									field.cells.insert_or_assign(Point(hDist(rng), wDist(rng)), std::make_shared<Cell>());
-								}
-							}
-							default:
-								break;
-							}
-					case SDL_WINDOWEVENT:
-						if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-							size_t oldScale = scaleFactor;
-							updateScaleFactor();
-							if (oldScale != scaleFactor) {
-								scaleTexture = sdl_resource(SDL_CreateTexture, SDL_DestroyTexture,
-															windowRenderer.get(), SDL_GetWindowPixelFormat(window.get()), SDL_TEXTUREACCESS_TARGET,
-															global.fieldW * scaleFactor, global.fieldH * scaleFactor
-														   );
-								SDL_RenderSetLogicalSize(windowRenderer.get(), global.fieldW * scaleFactor, global.fieldH * scaleFactor);
-							}
-						}
-						break;
-					case SDL_USEREVENT:
-						auto timeNow = SDL_GetTicks();
-						std::cout << "FPS: " << double(fps_frame_count * 1000) / double(timeNow - fpsTime) << "\n";
-						fpsTime = timeNow;
-						fps_frame_count = 0;
-					};
-				};
-			}
-			if (!working) break;
-
+			while (working) {
+				// Input events handling
 #ifdef WITH_OPENMP
-			// Those have to be declared here to get shared
-			std::vector<std::pair<Point, std::shared_ptr<Cell>>> moves;
-			std::vector<std::pair<Point, CellActionRequest*>> energyts;
-			std::vector<std::pair<Point, CellActionRequest*>> eats;
-
-			std::vector<Point> divisions;
-			std::vector<Point> todie;
-
-			// Also, we need a shared iterator
-			decltype(field.cells)::iterator it;
-
-			uint8_t* pixels;
-			int pitch;
-			#pragma omp parallel
-#endif
-			try {
-#ifdef WITH_OPENMP
-				// This variable is already set for OMP-less build
-				auto& rng = rngs[omp_get_thread_num()];
+				#pragma omp master
 #endif
 				{
-#ifndef WITH_OPENMP
-					std::vector<std::pair<Point, std::shared_ptr<Cell>>> moves;
-					std::vector<std::pair<Point, CellActionRequest*>> energyts;
-					std::vector<std::pair<Point, CellActionRequest*>> eats;
-#else
-					#pragma omp single
-					{
-						moves.clear();
-						energyts.clear();
-						eats.clear();
-#endif
-					// Round 1 of calculations: poll cells for actions
+					SDL_Event e;
+					while (SDL_PollEvent(&e)) {
+						switch (e.type) {
+						case SDL_QUIT:
+							working = false;
+							break;
+						case SDL_KEYDOWN:
+							if (!e.key.repeat)
+								switch (e.key.keysym.scancode) {
+								case SDL_SCANCODE_A: {
+									std::cout << "Here, have some cells!" << std::endl;
+									std::uniform_int_distribution<size_t> wDist(0, global.fieldW - 1);
+									std::uniform_int_distribution<size_t> hDist(0, global.fieldH - 1);
+									for (size_t i = 0; i < 10; ++i) {
+										field.cells.insert_or_assign(Point(hDist(rng), wDist(rng)), std::make_shared<Cell>());
+									}
+								}
+								default:
+									break;
+								}
+						case SDL_WINDOWEVENT:
+							if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+								size_t oldScale = scaleFactor;
+								updateScaleFactor();
+								if (oldScale != scaleFactor) {
+									scaleTexture = sdl_resource(SDL_CreateTexture, SDL_DestroyTexture,
+																windowRenderer.get(), SDL_GetWindowPixelFormat(window.get()), SDL_TEXTUREACCESS_TARGET,
+																global.fieldW * scaleFactor, global.fieldH * scaleFactor
+															   );
+									SDL_RenderSetLogicalSize(windowRenderer.get(), global.fieldW * scaleFactor, global.fieldH * scaleFactor);
+								}
+							}
+							break;
+						case SDL_USEREVENT:
+							auto timeNow = SDL_GetTicks();
+							std::cout << "FPS: " << double(fps_frame_count * 1000) / double(timeNow - fpsTime) << "\n";
+							fpsTime = timeNow;
+							fps_frame_count = 0;
+						};
+					};
+				}
 #ifdef WITH_OPENMP
-						it = field.cells.begin();
-					}
-					#pragma omp barrier
-					decltype(it) localIt;
-					bool cycleDone = false;
-					while (true) {
-						// Makeshift dynamic schedule
-						#pragma omp critical(it)
-						{
-							if (it == field.cells.end()) cycleDone = true;
-							else localIt = it++;
-						}
-						if (cycleDone) break;
-						auto& pair = *localIt;
-#else
+				#pragma omp barrier
+#endif
+				if (!working) break;
+
+				// Round 1 of calculations: poll cells for actions
+
+#ifdef WITH_OPENMP
+				#pragma omp sections
+#endif
+				{
+#ifdef WITH_OPENMP
+					#pragma omp section
+#endif
+					moves.clear();
+#ifdef WITH_OPENMP
+					#pragma omp section
+#endif
+					energyts.clear();
+#ifdef WITH_OPENMP
+					#pragma omp section
+#endif
+					eats.clear();
+				}
+
+#ifdef WITH_OPENMP
+				#pragma omp single
+#endif
+				{
 					for (auto& pair : field.cells) {
-#endif
-						auto res = pair.second->advanceBegin(pair.first);
-						if (res) {
-							switch (res->type) {
-							case CellActionRequestType::MOVE:
 #ifdef WITH_OPENMP
-								#pragma omp critical(moves)
+						#pragma omp task firstprivate(pair) shared(moves, energyts, eats) default(none)
 #endif
-								moves.emplace_back(pair.first, pair.second);
-								break;
-							case CellActionRequestType::ENERGY:
+						{
+							auto res = pair.second->advanceBegin(pair.first);
+							if (res) {
+								switch (res->type) {
+								case CellActionRequestType::MOVE:
 #ifdef WITH_OPENMP
-								#pragma omp critical(energyts)
+									#pragma omp critical(moves)
 #endif
-								energyts.emplace_back(pair.first, res);
-								break;
-							case CellActionRequestType::EAT:
+									moves.emplace_back(pair.first, pair.second);
+									break;
+								case CellActionRequestType::ENERGY:
 #ifdef WITH_OPENMP
-								#pragma omp critical(eats)
+									#pragma omp critical(energyts)
 #endif
-								eats.emplace_back(pair.first, res);
-								break;
-
-							case CellActionRequestType::NONE:
-								abort(); // Something is wrong
-								break;
-							}
-						}
-						// This is only for nice brace matching
-#ifndef WITH_OPENMP
-					}
-#else
-					}
-#endif
-
+									energyts.emplace_back(pair.first, res);
+									break;
+								case CellActionRequestType::EAT:
 #ifdef WITH_OPENMP
-					#pragma omp barrier
-					#pragma omp single
+									#pragma omp critical(eats)
 #endif
-					{
-						// Round two: handle energy transfers, eating and movement
-						// This includes changing state of cells, so we do this single-threaded (sadly)
-						// TODO: shuffling vectors first might be a good idea
+									eats.emplace_back(pair.first, res);
+									break;
 
-						// Energy transfers don't invalidate anything
-						for (auto& req : energyts) {
-							const auto second = req.second;
-							req.first.checkBounds();
-							req.first.apply(second->dir);
-							field.cells.at(req.first)->addEnergy(second->num);
-							second->res = 1;
-						}
-
-						// Eating requests might destroy source or target cells, so check for them first
-						bool mapTouched = false;
-						for (auto& req : eats) {
-							req.first.checkBounds();
-							// Are we still there?
-							if (field.cells.count(req.first)) {
-								auto& eater = field.cells.at(req.first);
-								const auto second = mapTouched ? eater->getActionPtr() : req.second;;
-								if (!req.first.apply(second->dir)) abort();
-
-								// Is our eating target still there?
-								if (field.cells.count(req.first)) {
-									// It is. Good
-									auto& prey = field.cells.at(req.first);
-									// TODO: impement some sort of power to makes struggles more strategically interesting
-									bool canEat = false;
-
-									if (eater->getEnergy() < prey->getEnergy()) {
-										uint8_t diff = prey->getEnergy() - eater->getEnergy();
-
-										std::uniform_int_distribution<uint8_t> dist(0, diff);
-										// This affects how useful eating is in general
-										canEat = dist(rng) < 50;
-									} else {
-										canEat = true;
-									}
-									second->res = canEat;
-
-									if (canEat) {
-										// We ate 'em!
-										// Add from half to all of their energy to us and erase them
-										//std::cout << "Om nom nom\n";
-										std::uniform_int_distribution<uint8_t> dist(prey->getEnergy() / 2, prey->getEnergy());
-										eater->addEnergy(dist(rng));
-										field.cells.erase(req.first);
-										mapTouched = true;
-									}
-								} else {
-									second->res = 0;
-								}
-								// No outer else needed, the eater is gone by now
-							}
-						}
-
-						// Now movement requests
-						// Check both for existance of asker and possiblity of request
-						// Also note that movement invalidates action pointers of moved cells, so be extra careful
-						for (auto& reqPair : moves) {
-							// Are we still there? Is that still really us?
-							auto& cell = reqPair.second;
-							if (field.cells.count(reqPair.first) and field.cells.at(reqPair.first) == cell) {
-								auto& cell = field.cells.at(reqPair.first);
-								const auto req = cell->getActionPtr();
-								const auto origPos = reqPair.first;
-								if (!reqPair.first.apply(req->dir)) abort();
-								// Ensure that target space is empty
-								if (!field.cells.count(reqPair.first)) {
-									req->res = 1;
-									reqPair.first.checkBounds();
-									mapTouched = true;
-									field.cells.insert({reqPair.first, std::move(cell)});
-									field.cells.erase(origPos);
-								} else {
-									req->res = 0;
+								case CellActionRequestType::NONE:
+									abort(); // Something is wrong
+									break;
 								}
 							}
 						}
 					}
 #ifdef WITH_OPENMP
-					#pragma omp barrier
+					#pragma omp taskwait
 #endif
 				}
+
+#ifdef WITH_OPENMP
+				#pragma omp single
+#endif
+				{
+					// Round two: handle energy transfers, eating and movement
+					// This includes changing state of cells, so we do this single-threaded (sadly)
+					// TODO: shuffling vectors first might be a good idea
+
+					// Energy transfers don't invalidate anything
+					for (auto& req : energyts) {
+						const auto second = req.second;
+						req.first.checkBounds();
+						req.first.apply(second->dir);
+						field.cells.at(req.first)->addEnergy(second->num);
+						second->res = 1;
+					}
+
+					// Eating requests might destroy source or target cells, so check for them first
+					bool mapTouched = false;
+					for (auto& req : eats) {
+						req.first.checkBounds();
+						// Are we still there?
+						if (field.cells.count(req.first)) {
+							auto& eater = field.cells.at(req.first);
+							const auto second = mapTouched ? eater->getActionPtr() : req.second;;
+							if (!req.first.apply(second->dir)) abort();
+
+							// Is our eating target still there?
+							if (field.cells.count(req.first)) {
+								// It is. Good
+								auto& prey = field.cells.at(req.first);
+								// TODO: impement some sort of power to makes struggles more strategically interesting
+								bool canEat = false;
+
+								if (eater->getEnergy() < prey->getEnergy()) {
+									uint8_t diff = prey->getEnergy() - eater->getEnergy();
+
+									std::uniform_int_distribution<uint8_t> dist(0, diff);
+									// This affects how useful eating is in general
+									canEat = dist(rng) < 50;
+								} else {
+									canEat = true;
+								}
+								second->res = canEat;
+
+								if (canEat) {
+									// We ate 'em!
+									// Add from half to all of their energy to us and erase them
+									//std::cout << "Om nom nom\n";
+									std::uniform_int_distribution<uint8_t> dist(prey->getEnergy() / 2, prey->getEnergy());
+									eater->addEnergy(dist(rng));
+									field.cells.erase(req.first);
+									mapTouched = true;
+								}
+							} else {
+								second->res = 0;
+							}
+							// No outer else needed, the eater is gone by now
+						}
+					}
+
+					// Now movement requests
+					// Check both for existance of asker and possiblity of request
+					// Also note that movement invalidates action pointers of moved cells, so be extra careful
+					for (auto& reqPair : moves) {
+						// Are we still there? Is that still really us?
+						auto& cell = reqPair.second;
+						if (field.cells.count(reqPair.first) and field.cells.at(reqPair.first) == cell) {
+							auto& cell = field.cells.at(reqPair.first);
+							const auto req = cell->getActionPtr();
+							const auto origPos = reqPair.first;
+							if (!reqPair.first.apply(req->dir)) abort();
+							// Ensure that target space is empty
+							if (!field.cells.count(reqPair.first)) {
+								req->res = 1;
+								reqPair.first.checkBounds();
+								mapTouched = true;
+								field.cells.insert({reqPair.first, std::move(cell)});
+								field.cells.erase(origPos);
+							} else {
+								req->res = 0;
+							}
+						}
+					}
+				}
+				// Implicit OpenMP barrier
 
 				// Calculate lighting
 				// Note: we might render blue component to texture as the same time
@@ -364,7 +356,7 @@ int main(int argc, char* argv[]) {
 					else maxLight = daytime;
 				}
 #ifdef WITH_OPENMP
-				#pragma omp for nowait
+				#pragma omp for nowait order(concurrent)
 #endif
 				for (size_t x = 0; x < global.fieldW; ++x) {
 					size_t lightLevel = maxLight;
@@ -380,65 +372,59 @@ int main(int argc, char* argv[]) {
 
 				{
 					// Now finish calculations in cells
-#ifndef WITH_OPENMP
-					std::vector<Point> divisions;
-					std::vector<Point> todie;
-#else
-					#pragma omp single
+#ifdef WITH_OPENMP
+					#pragma omp sections
+#endif
 					{
+#ifdef WITH_OPENMP
+						#pragma omp section
+#endif
 						divisions.clear();
+#ifdef WITH_OPENMP
+						#pragma omp section
+#endif
 						todie.clear();
 					}
-					#pragma omp barrier
-#endif
+
 #ifdef WITH_OPENMP
 					#pragma omp single
+#endif
 					{
-						it = field.cells.begin();
-					}
-					#pragma omp barrier
-					decltype(it) localIt;
-					bool cycleDone = false;
-					while (true) {
-						// Makeshift dynamic schedule
-						#pragma omp critical(it)
-						{
-							if (it == field.cells.end()) cycleDone = true;
-							else localIt = it++;
+						for (auto& pair : field.cells) {
+#ifdef WITH_OPENMP
+							#pragma omp task firstprivate(pair) shared(divisions, todie, rngs) default(none)
+#endif
+							{
+								// It is required to explicitly request instance when using tasks
+#ifdef WITH_OPENMP
+								auto& rng = rngs[omp_get_thread_num()];
+#endif
+								auto res = pair.second->advanceEnd(pair.first, rng);
+								switch (res) {
+								case EndMoveAction::DIVIDE:
+#ifdef WITH_OPENMP
+									#pragma omp critical(divisions)
+#endif
+									divisions.push_back(pair.first);
+									break;
+								case EndMoveAction::DIE:
+#ifdef WITH_OPENMP
+									#pragma omp critical(todie)
+#endif
+									todie.push_back(pair.first);
+									break;
+								case EndMoveAction::NONE:
+									break;
+								};
+							}
 						}
-						if (cycleDone) break;
-						auto& pair = *localIt;
-#else
-					for (auto& pair : field.cells) {
-#endif
-						auto res = pair.second->advanceEnd(pair.first, rng);
-						switch (res) {
-						case EndMoveAction::DIVIDE:
 #ifdef WITH_OPENMP
-							#pragma omp critical(divisions)
+						#pragma omp taskwait
 #endif
-							divisions.push_back(pair.first);
-							break;
-						case EndMoveAction::DIE:
-#ifdef WITH_OPENMP
-							#pragma omp critical(todie)
-#endif
-							todie.push_back(pair.first);
-							break;
-						case EndMoveAction::NONE:
-							break;
-						};
-						// This is only for nice brace matching
-#ifndef WITH_OPENMP
 					}
-#else
-					}
-#endif
-
 
 #ifdef WITH_OPENMP
-					#pragma omp barrier
-					#pragma omp single nowait
+					#pragma omp single
 #endif
 					{
 						// Now, in (sadly) single-threaded mode, handle ensuring deaths and divisions
@@ -479,30 +465,25 @@ int main(int argc, char* argv[]) {
 							field.cells.insert({newPos, std::move(newCell)});
 						}
 					}
+					// Implicit barrier
 				}
 
-				// Render to texture
+				// Rendering
+#ifdef WITH_OPENMP
+				#pragma omp master
+#endif
 				{
-#ifndef WITH_OPENMP
-					// We can use proper scope
 					uint8_t* pixels;
 					int pitch;
-#else
-					#pragma omp master
-#endif
-					{
-						SDL_LockTexture(renderTexture.get(), nullptr, (void**)&pixels, &pitch);
-						// Assert below may fail even in properly working case!
-						//SDL_assert(global.fieldW * 3 == pitch);
-					}
+					SDL_LockTexture(renderTexture.get(), nullptr, (void**)&pixels, &pitch);
+					// Assert below may fail even in properly working case!
+					//SDL_assert(global.fieldW * 3 == pitch);
 #ifdef WITH_OPENMP
-					#pragma omp barrier
-					#pragma omp for
+					#pragma omp taskloop simd collapse(2) shared(pixels, pitch, global, field) default(none)
 #endif
 					for (size_t y = 0; y < global.fieldH; ++y) {
-						auto rowidx = pitch * y;
 						for (size_t x = 0; x < global.fieldW; ++x) {
-							auto pixidx = rowidx + x * 3;
+							auto pixidx = pitch * y + x * 3;
 							// RED - currently unused
 							pixels[pixidx]		= 0;
 
@@ -517,38 +498,29 @@ int main(int argc, char* argv[]) {
 						}
 					}
 #ifdef WITH_OPENMP
-					#pragma omp barrier
-					#pragma omp master
+					#pragma omp taskwait
 #endif
-					{
-						SDL_UnlockTexture(renderTexture.get());
-					}
-#ifdef WITH_OPENMP
-					#pragma omp barrier
-#endif
+					SDL_UnlockTexture(renderTexture.get());
+
+					// Upscale our texture using integer NN scaling
+					SDL_SetRenderTarget(windowRenderer.get(), scaleTexture.get());
+					SDL_RenderCopy(windowRenderer.get(), renderTexture.get(), nullptr, nullptr);
+
+					// Now display it with linear downscaling
+					SDL_SetRenderTarget(windowRenderer.get(), nullptr);
+					SDL_RenderCopy(windowRenderer.get(), scaleTexture.get(), nullptr, nullptr);
+
+					SDL_RenderPresent(windowRenderer.get());
+
+					// Insert FPS-driven delay
+					//SDL_framerateDelay(&fps);
+					++frame_count;
+					++fps_frame_count;
 				}
-			} catch (const std::exception& e) {
-				SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, "exception in cycle: %s", e.what());
-				exit(1);
 			}
-
-			// Multithreading ends here
-
-			// Upscale our texture using integer NN scaling
-			SDL_SetRenderTarget(windowRenderer.get(), scaleTexture.get());
-			SDL_RenderCopy(windowRenderer.get(), renderTexture.get(), nullptr, nullptr);
-
-			// Now display it with linear downscaling
-			SDL_SetRenderTarget(windowRenderer.get(), nullptr);
-			SDL_RenderCopy(windowRenderer.get(), scaleTexture.get(), nullptr, nullptr);
-
-			SDL_RenderPresent(windowRenderer.get());
-
-			// Insert FPS-driven delay
-			//SDL_framerateDelay(&fps);
-			++frame_count;
-			++fps_frame_count;
+#ifdef WITH_OPENMP
 		}
+#endif
 	} catch (const std::exception& e) {
 		SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, "%s", e.what());
 		return 1;
