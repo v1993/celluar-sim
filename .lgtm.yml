@@ -1,0 +1,9 @@
+queries:
+  include: "*"
+extraction:
+  cpp:
+     prepare:
+        packages: 
+          - libsdl2-dev
+          - libsdl2-gfx-dev
+          - libtbb-dev

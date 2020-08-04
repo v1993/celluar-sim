@@ -64,7 +64,7 @@ int main(int argc, char* argv[]) {
 								   800, 600, SDL_WINDOW_RESIZABLE
 								  );
 
-		// FIXME: add proper FPS controls
+		// TODO: add proper FPS controls
 		auto windowRenderer = sdl_resource(SDL_CreateRenderer, SDL_DestroyRenderer,
 										   window.get(), -1,
 										   //SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_TARGETTEXTURE
@@ -138,11 +138,10 @@ int main(int argc, char* argv[]) {
 		SDL_AddTimer(1000, my_callbackfunc, nullptr);
 #ifdef WITH_OPENMP
 		#pragma omp parallel
-		{
+		try {
 			// Style guide: tasks and taskloops must use default(none) to strictly control variable access
 			// Note: must not be used in tasks. Each must get an individual copy instead.
 			auto& rng = rngs[omp_get_thread_num()];
-			// FIXME: handle exceptions that might happen in loop
 #endif
 			while (working) {
 				// Input events handling
@@ -523,6 +522,12 @@ int main(int argc, char* argv[]) {
 				}
 			}
 #ifdef WITH_OPENMP
+		} catch (const std::exception& e) {
+			SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, "(in threaded loop) %s", e.what());
+			exit(1);
+		} catch (...) {
+			SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, "unknown error in threaded loop");
+			exit(2);
 		}
 #endif
 	} catch (const std::exception& e) {
