@@ -54,6 +54,7 @@ int main(int argc, char* argv[]) {
 	try {
 		// Init things
 		field.lightMap = std::make_unique<uint8_t[]> (global.fieldH * global.fieldW);
+		field.cellsField = std::make_unique<Cell*[]>(global.fieldH * global.fieldW);
 
 		atexit(SDL_Quit);
 		if (SDL_Init(SDL_INIT_EVENTS | SDL_INIT_VIDEO)) throw SdlError();
@@ -120,11 +121,10 @@ int main(int argc, char* argv[]) {
 		size_t frame_count = 0, fps_frame_count = 0;
 
 		// Various variables that affect how simulation is working
-		// TODO: make those changeble in runtime
 		size_t mutationRate = 10;
 
 		// Those vectors get reused a lot, so don't create them every loop
-		std::vector<std::pair<Point, std::shared_ptr<Cell>>> moves;
+		std::vector<std::pair<Point, Cell*>> moves;
 		std::vector<std::pair<Point, CellActionRequest*>> energyts;
 		std::vector<std::pair<Point, CellActionRequest*>> eats;
 
@@ -162,17 +162,22 @@ int main(int argc, char* argv[]) {
 									std::uniform_int_distribution<size_t> wDist(0, global.fieldW - 1);
 									std::uniform_int_distribution<size_t> hDist(0, global.fieldH - 1);
 									for (size_t i = 0; i < 10; ++i) {
-										field.cells.insert_or_assign(Point(hDist(rng), wDist(rng)), std::make_shared<Cell>());
+										auto pos = Point(hDist(rng), wDist(rng));
+										auto newCell = std::make_unique<Cell>();
+										field.cellsField[pos.toArrayIdx()] = newCell.get();
+										field.cellsMap.emplace(pos, std::move(newCell));
 									}
 									break;
 								}
 								case SDL_SCANCODE_KP_PLUS: {
-									mutationRate += 5;
+									if (mutationRate >= 5) mutationRate += 5;
+									else mutationRate += 1;
 									std::cout << "Mutation rate: " << mutationRate << std::endl;
 									break;
 								}
 								case SDL_SCANCODE_KP_MINUS: {
-									if(mutationRate >= 5) mutationRate -= 5;
+									if (mutationRate > 5) mutationRate -= 5;
+									else if (mutationRate > 0) mutationRate -= 1;
 									std::cout << "Mutation rate: " << mutationRate << std::endl;
 									break;
 								}
@@ -229,9 +234,10 @@ int main(int argc, char* argv[]) {
 				#pragma omp single
 #endif
 				{
-					for (auto& pair : field.cells) {
+					for (auto& pair : field.cellsMap) {
+
 #ifdef WITH_OPENMP
-						#pragma omp task firstprivate(pair) shared(moves, energyts, eats) default(none)
+						#pragma omp task shared(pair) shared(moves, energyts, eats) default(none)
 #endif
 						{
 							auto res = pair.second->advanceBegin(pair.first);
@@ -241,7 +247,7 @@ int main(int argc, char* argv[]) {
 #ifdef WITH_OPENMP
 									#pragma omp critical(moves)
 #endif
-									moves.emplace_back(pair.first, pair.second);
+									moves.emplace_back(pair.first, pair.second.get());
 									break;
 								case CellActionRequestType::ENERGY:
 #ifdef WITH_OPENMP
@@ -280,31 +286,30 @@ int main(int argc, char* argv[]) {
 					for (auto& req : energyts) {
 						const auto second = req.second;
 						req.first.checkBounds();
-						req.first.apply(second->dir);
-						field.cells.at(req.first)->addEnergy(second->num);
+						if (!req.first.apply(second->dir)) abort();
+						field.cellsField[req.first.toArrayIdx()]->addEnergy(second->num);
 						second->res = 1;
 					}
 
 					// Eating requests might destroy source or target cells, so check for them first
-					bool mapTouched = false;
 					for (auto& req : eats) {
 						req.first.checkBounds();
 						// Are we still there?
-						if (field.cells.count(req.first)) {
-							auto& eater = field.cells.at(req.first);
-							const auto second = mapTouched ? eater->getActionPtr() : req.second;;
+						auto eater = field.cellsField[req.first.toArrayIdx()];
+						if (eater) {
+							const auto second = req.second;
 							if (!req.first.apply(second->dir)) abort();
 
 							// Is our eating target still there?
-							if (field.cells.count(req.first)) {
+							auto prey = field.cellsField[req.first.toArrayIdx()];
+							if (prey) {
 								// It is. Good
-								auto& prey = field.cells.at(req.first);
 								bool canEat = false;
-								
+
 								auto getPotential = [](decltype(eater)& obj) {
 									return obj->getEnergy() + obj->getPower();
 								};
-								
+
 								auto eaterPotential = getPotential(eater);
 								auto preyPotential = getPotential(prey);
 
@@ -325,8 +330,8 @@ int main(int argc, char* argv[]) {
 									//std::cout << "Om nom nom\n";
 									std::uniform_int_distribution<uint8_t> dist(prey->getEnergy() / 2, prey->getEnergy());
 									eater->addEnergy(dist(rng));
-									field.cells.erase(req.first);
-									mapTouched = true;
+									field.cellsMap.erase(req.first);
+									field.cellsField[req.first.toArrayIdx()] = nullptr;
 								}
 							} else {
 								second->res = 0;
@@ -340,19 +345,20 @@ int main(int argc, char* argv[]) {
 					// Also note that movement invalidates action pointers of moved cells, so be extra careful
 					for (auto& reqPair : moves) {
 						// Are we still there? Is that still really us?
-						auto& cell = reqPair.second;
-						if (field.cells.count(reqPair.first) and field.cells.at(reqPair.first) == cell) {
-							auto& cell = field.cells.at(reqPair.first);
+						auto cell = reqPair.second;
+						auto posIdx = reqPair.first.toArrayIdx();
+						if (field.cellsField[posIdx] and field.cellsField[posIdx] == cell) {
 							const auto req = cell->getActionPtr();
 							const auto origPos = reqPair.first;
 							if (!reqPair.first.apply(req->dir)) abort();
 							// Ensure that target space is empty
-							if (!field.cells.count(reqPair.first)) {
+							if (!field.cellsField[reqPair.first.toArrayIdx()]) {
 								req->res = 1;
 								reqPair.first.checkBounds();
-								mapTouched = true;
-								field.cells.insert({reqPair.first, std::move(cell)});
-								field.cells.erase(origPos);
+								field.cellsMap.emplace(reqPair.first, std::move(field.cellsMap.at(origPos)));
+								field.cellsMap.erase(origPos);
+								field.cellsField[reqPair.first.toArrayIdx()] = field.cellsField[posIdx];
+								field.cellsField[posIdx] = nullptr;
 							} else {
 								req->res = 0;
 							}
@@ -381,10 +387,10 @@ int main(int argc, char* argv[]) {
 					size_t lightLevel = maxLight;
 
 					for (size_t y = 0; y < global.fieldH; ++y) {
-						field.lightMap[x * global.fieldH + y] = lightLevel;
+						field.lightMap[Point(y, x).toArrayIdx()] = lightLevel;
 						// TODO: make shadow proportional to cell's power
 						std::uniform_int_distribution distr(0, 1);
-						size_t change = (field.cells.count({y, x}) ? 6 : 3) + distr(rng);
+						size_t change = (field.cellsField[Point(y, x).toArrayIdx()] ? 6 : 3) + distr(rng);
 						lightLevel = (change < lightLevel) ? lightLevel - change : 0;
 					};
 				}
@@ -409,9 +415,9 @@ int main(int argc, char* argv[]) {
 					#pragma omp single
 #endif
 					{
-						for (auto& pair : field.cells) {
+						for (auto& pair : field.cellsMap) {
 #ifdef WITH_OPENMP
-							#pragma omp task firstprivate(pair) shared(divisions, todie, rngs) default(none)
+							#pragma omp task shared(pair) shared(divisions, todie, rngs) default(none)
 #endif
 							{
 								// It is required to explicitly request instance when using tasks
@@ -449,13 +455,14 @@ int main(int argc, char* argv[]) {
 						// Now, in (sadly) single-threaded mode, handle ensuring deaths and divisions
 						for (auto& pos : todie) {
 							// It's an easy one
-							field.cells.erase(pos);
+							field.cellsMap.erase(pos);
+							field.cellsField[pos.toArrayIdx()] = nullptr;
 						}
 						std::uniform_int_distribution<size_t> mutDist(0, mutationRate);
 						std::array<uint8_t, DirectionMax> possibleDirs;
 						for (auto& pos : divisions) {
 							// Divisions are tricky
-							auto& parent = field.cells.at(pos);
+							auto parent = field.cellsField[pos.toArrayIdx()];
 							// Here we build a vector of possible division directions
 							// Note: in theory, this loop can be ran in parallel. But how?.. And is it worth it?..
 							size_t possibleCnt = 0;
@@ -463,14 +470,13 @@ int main(int argc, char* argv[]) {
 								// If it's a valid cell
 								if (auto npos = pos.applyNew(Direction(dir))) {
 									// and it's empty
-									if (!field.cells.count(*npos)) {
+									if (!field.cellsField[(*npos).toArrayIdx()]) {
 										possibleDirs[possibleCnt++] = dir;
 									}
 								}
 							}
-							// If we can't divide, we silently die :(
+							// If we can't divide, we just silently loose energy
 							if (possibleCnt == 0) {
-								field.cells.erase(pos);
 								continue;
 							}
 
@@ -481,7 +487,8 @@ int main(int argc, char* argv[]) {
 							newPos.checkBounds();
 							auto newCell = parent->fork();
 							newCell->mutate(mutDist(rng), rng);
-							field.cells.insert({newPos, std::move(newCell)});
+							field.cellsField[newPos.toArrayIdx()] = newCell.get();
+							field.cellsMap.insert({newPos, std::move(newCell)});
 						}
 					}
 					// Implicit barrier
@@ -503,12 +510,13 @@ int main(int argc, char* argv[]) {
 					for (size_t y = 0; y < global.fieldH; ++y) {
 						for (size_t x = 0; x < global.fieldW; ++x) {
 							size_t pixidx = pitch * y + x * 3;
-							
-							if (field.cells.count({y, x})) {
+							Point pos {y, x};
+
+							auto cell = field.cellsField[pos.toArrayIdx()];
+							if (cell) {
 								// RED - power
 								// GREEN - energy
-								auto& cell = field.cells.at({y, x});
-								pixels[pixidx]		= cell->getPower();
+								pixels[pixidx]		= std::min((size_t)cell->getPower() * 5, (size_t)255);
 								pixels[pixidx + 1]	= cell->getEnergy();
 							} else {
 								pixels[pixidx]		= 0;
@@ -516,7 +524,7 @@ int main(int argc, char* argv[]) {
 							}
 
 							// BLUE - lighting level
-							pixels[pixidx + 2]	= field.lightMap[x * global.fieldH + y];
+							pixels[pixidx + 2]	= field.lightMap[pos.toArrayIdx()];
 						}
 					}
 #ifdef WITH_OPENMP

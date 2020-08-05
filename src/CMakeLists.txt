@@ -33,16 +33,15 @@ target_link_libraries(celluar-sim
 
 if(ENABLE_OPENMP)
 	if(OpenMP_CXX_FOUND)
-		message(STATUS "Compiling with OpenMP")
+		message(STATUS "Compiling with OpenMP (consider not doing this for performance reasons)")
 		target_link_libraries(celluar-sim OpenMP::OpenMP_CXX)
 		target_compile_definitions(celluar-sim PRIVATE WITH_OPENMP)
 	else()
-		message(WARNING "OpenMP support is missing in your compiler.\
-This might result in worse performance on most systems. Consider changing compiler\
-or use -DENABLE_OPENMP=OFF to silence this warning.")
+		message(WARNING "OpenMP was requested but is not supported by your compiler.\
+It won't be enabled as a result.")
 	endif()
 else()
-	message(STATUS "OpenMP manually disabled")
+	message(STATUS "OpenMP disabled")
 endif()
 
 target_compile_options(celluar-sim PRIVATE "$<$<AND:$<CONFIG:DEBUG>,$<CXX_COMPILER_ID:Clang>>:-fstandalone-debug>")

@@ -46,11 +46,13 @@ struct Point {
 
 	Point(size_t y_, size_t x_): y(y_), x(x_) {};
 
+	[[nodiscard]] size_t toArrayIdx() const { return x * global.fieldH + y; };
+
 	bool operator==(const Point& other) const {return other.y == y and other.x == x; };
 
-	void checkBounds() { SDL_assert_paranoid(y < global.fieldH and x < global.fieldW); };
+	void checkBounds() const { SDL_assert_paranoid(y < global.fieldH and x < global.fieldW); };
 
-	bool canApply(Direction dir) {
+	bool canApply(Direction dir) const {
 		switch (dir) {
 		case Direction::UPLEFT:
 			return !(y == 0 or x == 0);
@@ -147,7 +149,7 @@ struct Point {
 		};
 	};
 
-	std::optional<Point> applyNew(Direction dir) {
+	std::optional<Point> applyNew(Direction dir) const {
 		Point other = *this;
 		if (other.apply(dir))
 			return other;
@@ -156,7 +158,8 @@ struct Point {
 	};
 };
 
-struct Point_hash {
+template<>
+struct std::hash<Point> {
 	std::size_t operator()(const Point &obj) const {
 		return static_cast<size_t>(obj.y ^ obj.x);
 	}
@@ -165,7 +168,8 @@ struct Point_hash {
 class Cell;
 
 struct GlobalFieldType {
-	std::unordered_map<Point, std::shared_ptr<Cell>, Point_hash> cells;
+	std::unordered_map<Point, std::unique_ptr<Cell>> cellsMap;
+	std::unique_ptr<Cell*[]> cellsField;
 	// Note: light map is stored column-by-column to optimize memory access
 	std::unique_ptr<uint8_t[]> lightMap;
 };

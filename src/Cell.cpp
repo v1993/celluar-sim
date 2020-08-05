@@ -6,7 +6,7 @@ uint8_t Cell::regRead(uint8_t reg, const Point& pos) const {
 	case 0:
 		return energy;
 	case 1:
-		return field.lightMap[pos.x * global.fieldH + pos.y];
+		return field.lightMap[pos.toArrayIdx()];
 	case 2:
 		return age / 4;
 	default:
@@ -71,8 +71,9 @@ CellActionRequest* Cell::advanceBegin(Point pos) {
 	case 5:   // PROBE
 	case 6: { // RPROBE
 		if (pos.apply(DirectionHelper::create((cmd == 5) ? readAndAdvance() : regreadline()))) {
-			if (field.cells.count(pos)) {
-				setoreg(field.cells.at(pos)->getEnergy());
+			auto other = field.cellsField[pos.toArrayIdx()];
+			if (other) {
+				setoreg(other->getEnergy());
 				return nullptr;
 			}
 		}
@@ -82,9 +83,10 @@ CellActionRequest* Cell::advanceBegin(Point pos) {
 	case 7:   // ANALYZE
 	case 8: { // RANALYZE
 		if (pos.apply(DirectionHelper::create((cmd == 7) ? readAndAdvance() : regreadline()))) {
-			if (field.cells.count(pos)) {
-				heavyWait = 2;
-				const auto& otherProg = field.cells.at(pos)->getProgram();
+			auto other = field.cellsField[pos.toArrayIdx()];
+			if (other) {
+				heavyWait = 1;
+				const auto& otherProg = other->getProgram();
 				size_t diff = 0;
 				for (size_t i = 0; i < opline.size(); ++i) {
 					diff += opline[i] != otherProg[i];
@@ -153,7 +155,7 @@ CellActionRequest* Cell::advanceBegin(Point pos) {
 	case 19:   // EAT
 	case 20: { // REAT
 		auto dir = DirectionHelper::create((cmd == 19) ? readAndAdvance() : regreadline());
-		if (pos.apply(dir) and field.cells.count(pos)) {
+		if (pos.apply(dir) and field.cellsField[pos.toArrayIdx()]) {
 			// Don't try to eat stuff if you can't do it
 			energy_usage += 6;
 			action_request.type = CellActionRequestType::EAT;
@@ -167,7 +169,7 @@ CellActionRequest* Cell::advanceBegin(Point pos) {
 	case 22: { // RENG
 		auto enAmount = (cmd == 21) ? readAndAdvance() : regreadline();
 		auto dir = DirectionHelper::create((cmd == 21) ? readAndAdvance() : regreadline());
-		if (enAmount < energy and pos.apply(dir) and field.cells.count(pos)) {
+		if (enAmount < energy and pos.apply(dir) and field.cellsField[pos.toArrayIdx()]) {
 			energy_usage += enAmount;
 			action_request.type = CellActionRequestType::ENERGY;
 			action_request.dir = dir;
@@ -193,6 +195,19 @@ CellActionRequest* Cell::advanceBegin(Point pos) {
 		}
 		return nullptr;
 	}
+	case 27:   // POW2E
+	case 28: { // RPOW2E
+		auto powAmount = (cmd == 27) ? readAndAdvance() : regreadline();
+		if (powAmount < power) {
+			addEnergy(powAmount / 2); // It's lossy
+			power -= powAmount;
+			// Side effect: use POW(0) to obtain current power
+			setoreg(power);
+		} else {
+			setoreg(0);
+		}
+		return nullptr;
+	}
 	default:
 		advancePtr(cmd);
 		return nullptr;
@@ -200,7 +215,7 @@ CellActionRequest* Cell::advanceBegin(Point pos) {
 }
 
 EndMoveAction Cell::advanceEnd(Point pos, randomGenerator& rng) {
-	auto lightEng = field.lightMap[pos.x * global.fieldH + pos.y] / 32;
+	auto lightEng = field.lightMap[pos.toArrayIdx()] / 32;
 	auto powerMod = power / 10;
 	if (lightEng > powerMod) addEnergy(lightEng - powerMod);
 
@@ -238,8 +253,8 @@ EndMoveAction Cell::advanceEnd(Point pos, randomGenerator& rng) {
 	return EndMoveAction::NONE;
 }
 
-std::shared_ptr<Cell> Cell::fork() const {
- 	auto n = std::make_shared<Cell>();
+std::unique_ptr<Cell> Cell::fork() const {
+	auto n = std::make_unique<Cell>();
 
 	n->energy = energy;
 	n->power = power / 10;

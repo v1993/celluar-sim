@@ -51,12 +51,12 @@ class Cell {
 		// Main functions, they can be called in threaded context
 		// Called at the beginning of handling cycle
 		CellActionRequest* advanceBegin(Point pos);
-		// Called at the end of it
+// 		// Called at the end of it
 		EndMoveAction advanceEnd(Point pos, randomGenerator& rng);
 
 		// Useful for creating new cells
 		// Doesn't trigger mutation by itself!
-		std::shared_ptr<Cell> fork() const;
+		std::unique_ptr<Cell> fork() const;
 
 		// Used to access cell's internals
 		void addEnergy(uint8_t eeng) {

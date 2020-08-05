@@ -11,7 +11,8 @@ project(celluar-sim
 DESCRIPTION "Experimental 2D simulation of evolution"
 LANGUAGES CXX)
 
-set(ENABLE_OPENMP TRUE CACHE BOOL "Enable usage of OpenMP if available")
+set(ENABLE_OPENMP OFF CACHE BOOL "Enable usage of OpenMP if available.\
+It is known to decrease performance and increase load considerably.")
 
 if(NOT CMAKE_BUILD_TYPE)
 	message(STATUS "No build type specified, defaulting to Release")
