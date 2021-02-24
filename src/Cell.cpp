@@ -59,7 +59,8 @@ CellActionRequest* Cell::advanceBegin(Point pos) {
 		energy_usage += 5 - std::min(power / 7, 5);
 		auto dir = DirectionHelper::create((cmd == 3) ? readAndAdvance() : regreadline());
 		if (pos.canApply(dir)) {
-			SDL_assert_paranoid(pos.apply(dir));
+			auto posRes = pos.apply(dir);
+			SDL_assert_paranoid(posRes);
 			action_request.type = CellActionRequestType::MOVE;
 			action_request.dir = dir;
 			return &action_request;
@@ -226,7 +227,7 @@ EndMoveAction Cell::advanceEnd(Point pos, randomGenerator& rng) {
 		energy -= energy_usage;
 	} else {
 		energy_income -= energy_usage;
-		if (energy_income + energy < energy) energy = 255;
+		if (uint8_t(energy_income + energy) < energy) energy = 255;
 		else energy += energy_income;
 	}
 
